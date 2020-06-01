@@ -22,14 +22,12 @@ import com.deftlabs.lock.mongo.DistributedLockOptions;
 import com.deftlabs.lock.mongo.DistributedLockSvcOptions;
 
 // Mongo
-import com.mongodb.Mongo;
 import com.mongodb.MongoClient;
 import org.bson.types.ObjectId;
 
 // Java
 import java.util.Queue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -136,6 +134,7 @@ public class LockImpl implements DistributedLock {
      * Try and lock the distributed lock.
      */
     private boolean tryDistributedLock() {
+        if (_threadLock.get()) return true;
         if (isLocked()) return false;
 
         final ObjectId lockId = LockDao.lock(_mongo, _name, _svcOptions, _lockOptions);
@@ -143,6 +142,7 @@ public class LockImpl implements DistributedLock {
         if (lockId == null) return false;
 
 
+        _threadLock.set(true);
         _locked.set(true);
         _lockId = lockId;
         return true;
@@ -174,6 +174,7 @@ public class LockImpl implements DistributedLock {
 
     @Override public void unlock() {
         LockDao.unlock(_mongo, _name, _svcOptions, _lockOptions, _lockId);
+        _threadLock.set(false);
         _locked.set(false);
         _lockId = null;
         LockSupport.unpark(_waitingThreads.peek());
@@ -227,6 +228,7 @@ public class LockImpl implements DistributedLock {
 
     private volatile ObjectId _lockId;
     private final AtomicBoolean _locked = new AtomicBoolean(false);
+    private final ThreadLocal<Boolean> _threadLock = ThreadLocal.withInitial(() -> false);
     private final AtomicBoolean _running = new AtomicBoolean(false);
     private final Queue<Thread> _waitingThreads = new ConcurrentLinkedQueue<Thread>();
 }
